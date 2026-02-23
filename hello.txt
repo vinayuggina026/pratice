@@ -1,0 +1,490 @@
+import java.io.*;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.*;
+
+public class FileSystemAPI{
+	public static void main(String[] args) throws IOException{
+		Configuration conf=new Configuration();
+		conf.set("fs.defaultFS","hdfs://quickstart.cloudera:8020");
+		FileSystem fs=FileSystem.get(conf);
+		Path local=new Path("/home/cloudera/Desktop/BDA Lab/FS API/sample.txt");
+		Path hdfs=new Path("/user/cloudera/sample.txt");
+		writeFileToHdfs(fs,local,hdfs);
+		readFileFromHDFS(fs,hdfs);
+
+		fs.close();
+	}
+	
+	public static void writeFileToHdfs(FileSystem fs,Path local,Path hdfsPath) throws IOException{
+	FSDataOutputStream outputStream=fs.create(hdfsPath,true);
+	BufferedReader br=new BufferedReader(new FileReader(local.toString()));
+	
+	String line;
+	while((line=br.readLine())!=null){
+		outputStream.writeBytes(line+"\n");
+	}
+	br.close();
+	outputStream.close();
+	System.out.println("File successfully written to HDFS:"+hdfsPath);
+	}
+	public static void readFileFromHDFS(FileSystem fs,Path hdfsPath) throws IOException{
+		if(!fs.exists(hdfsPath)){
+			System.out.println("File not found in HDFS:"+hdfsPath);
+			return;
+		}
+		FSDataInputStream inputStream=fs.open(hdfsPath);
+		BufferedReader br=new BufferedReader(new InputStreamReader(inputStream));
+		System.out.println("Reading file from HDFS");
+		String line;
+		while((line=br.readLine())!=null){
+			System.out.println(line);
+		}
+		br.close();
+		inputStream.close();
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+javac -classpath `Hadoop classpath` FileSystemAPI
+java -classpath .:`Hadoop classpath` FileSystemAPI
+
+
+
+
+
+
+
+
+
+
+
+
+import java.io.IOException;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class EmployeeSalary {
+
+    // Mapper Class
+    public static class SalaryMapper 
+            extends Mapper<LongWritable, Text, Text, IntWritable> {
+
+        private Text department = new Text();
+        private IntWritable salary = new IntWritable();
+        @Override
+        protected void map(LongWritable key, Text value, Context context)
+                throws IOException, InterruptedException {
+
+            String line = value.toString();
+            String[] fields = line.split("\\s+");
+
+            // Expected format: EmployeeName Department Salary
+            if (fields.length == 3) {
+                department.set(fields[1]);
+                salary.set(Integer.parseInt(fields[2]));
+                context.write(department, salary);
+            }
+        }
+    }
+    // Reducer Class
+    public static class SalaryReducer 
+            extends Reducer<Text, IntWritable, Text, IntWritable> {
+
+        @Override
+        protected void reduce(Text key, Iterable<IntWritable> values, Context context)
+                throws IOException, InterruptedException {
+
+            int sum = 0;
+
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+            context.write(key, new IntWritable(sum));
+        }
+    }
+
+    // Driver Class
+    public static void main(String[] args) throws Exception {
+
+        if (args.length != 2) {
+            System.err.println("Usage: EmployeeSalary <input path> <output path>");
+            System.exit(-1);
+        }
+
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "Employee Salary Sum");
+
+        job.setJarByClass(EmployeeSalary.class);
+        job.setMapperClass(SalaryMapper.class);
+        job.setReducerClass(SalaryReducer.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
+
+
+
+
+
+
+
+emp1 dept1 5000
+emp2 dept1 6000
+emp3 dept2 4500
+emp4 dept2 5500
+emp5 dept3 7000
+
+
+
+javac -classpath `Hadoop classpath` EmployeeSalary.java
+hdfs dfs -put Input.txt /user/clodera/emp_input
+jar -cvf EmployeeSalary.jar *
+Hadoop jar EmployeeSalary.jar EmployeeSalary /user/clodera/emp_input /user/cloudera/output
+hdfs dfs -cat /user/cloudera/output/*
+
+
+
+
+
+
+
+
+
+
+
+
+
+import java.io.IOException;
+import java.util.StringTokenizer;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class WordCount {
+
+  public static class TokenizerMapper
+       extends Mapper<Object, Text, Text, IntWritable>{
+
+    private final static IntWritable one = new IntWritable(1);
+    private Text word = new Text();
+
+    public void map(Object key, Text value, Context context
+                    ) throws IOException, InterruptedException {
+      StringTokenizer itr = new StringTokenizer(value.toString());
+      while (itr.hasMoreTokens()) {
+        word.set(itr.nextToken());
+        context.write(word, one);
+      }
+    }
+  }
+
+  public static class IntSumReducer
+       extends Reducer<Text,IntWritable,Text,IntWritable> {
+    private IntWritable result = new IntWritable();
+
+    public void reduce(Text key, Iterable<IntWritable> values,
+                       Context context
+                       ) throws IOException, InterruptedException {
+      int sum = 0;
+      for (IntWritable val : values) {
+        sum += val.get();
+      }
+      result.set(sum);
+      context.write(key, result);
+    }
+  }
+
+  public static void main(String[] args) throws Exception {
+    Configuration conf = new Configuration();
+    Job job = Job.getInstance(conf, "word count");
+    job.setJarByClass(WordCount.class);
+    job.setMapperClass(TokenizerMapper.class);
+    job.setCombinerClass(IntSumReducer.class);
+    job.setReducerClass(IntSumReducer.class);
+    job.setOutputKeyClass(Text.class);
+    job.setOutputValueClass(IntWritable.class);
+    FileInputFormat.addInputPath(job, new Path(args[0]));
+    FileOutputFormat.setOutputPath(job, new Path(args[1]));
+    System.exit(job.waitForCompletion(true) ? 0 : 1);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import java.io.IOException;
+import java.util.PriorityQueue;
+import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Collections;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class TopTenUsersOptimized {
+
+    // User class
+    static class User {
+        String name;
+        int reputation;
+
+        User(String name, int reputation) {
+            this.name = name;
+            this.reputation = reputation;
+        }
+    }
+
+    // ---------------- MAPPER ----------------
+    public static class UsersMapper
+            extends Mapper<Object, Text, Text, IntWritable> {
+
+        private PriorityQueue<User> topUsers;
+
+        @Override
+        protected void setup(Context context) {
+            topUsers = new PriorityQueue<>(10,
+                    Comparator.comparingInt(u -> u.reputation));
+        }
+
+        public void map(Object key, Text value, Context context)
+                throws IOException, InterruptedException {
+
+            String line = value.toString().trim();
+
+            if (line.startsWith("<row")) {
+
+                String reputation = getAttribute(line, "Reputation");
+                String displayName = getAttribute(line, "DisplayName");
+
+                if (reputation != null && displayName != null) {
+                    try {
+                        int rep = Integer.parseInt(reputation);
+
+                        topUsers.add(new User(displayName, rep));
+
+                        if (topUsers.size() > 10) {
+                            topUsers.poll();  // remove smallest
+                        }
+
+                    } catch (NumberFormatException e) {
+                        // ignore invalid numbers
+                    }
+                }
+            }
+        }
+
+        @Override
+        protected void cleanup(Context context)
+                throws IOException, InterruptedException {
+
+            for (User user : topUsers) {
+                context.write(new Text(user.name),
+                        new IntWritable(user.reputation));
+            }
+        }
+
+        private String getAttribute(String line, String attribute) {
+
+            String pattern = attribute + "=\"";
+            int start = line.indexOf(pattern);
+
+            if (start == -1)
+                return null;
+
+            start += pattern.length();
+            int end = line.indexOf("\"", start);
+
+            return line.substring(start, end);
+        }
+    }
+
+    // ---------------- COMBINER ----------------
+    public static class TopTenCombiner
+            extends Reducer<Text, IntWritable, Text, IntWritable> {
+
+        public void reduce(Text key, Iterable<IntWritable> values,
+                           Context context)
+                throws IOException, InterruptedException {
+
+            for (IntWritable val : values) {
+                context.write(key, val);
+            }
+        }
+    }
+
+    // ---------------- REDUCER ----------------
+    public static class TopTenReducer
+            extends Reducer<Text, IntWritable, Text, IntWritable> {
+
+        private PriorityQueue<User> topUsers;
+
+        @Override
+        protected void setup(Context context) {
+            topUsers = new PriorityQueue<>(10,
+                    Comparator.comparingInt(u -> u.reputation));
+        }
+
+        public void reduce(Text key, Iterable<IntWritable> values,
+                           Context context)
+                throws IOException, InterruptedException {
+
+            for (IntWritable val : values) {
+
+                topUsers.add(new User(key.toString(), val.get()));
+
+                if (topUsers.size() > 10) {
+                    topUsers.poll();
+                }
+            }
+        }
+
+        @Override
+        protected void cleanup(Context context)
+                throws IOException, InterruptedException {
+
+            // Convert to list for descending order output
+            ArrayList<User> result = new ArrayList<>();
+
+            while (!topUsers.isEmpty()) {
+                result.add(topUsers.poll());
+            }
+
+            // Sort descending
+            Collections.sort(result,
+                    (a, b) -> b.reputation - a.reputation);
+
+            for (User user : result) {
+                context.write(new Text(user.name),
+                        new IntWritable(user.reputation));
+            }
+        }
+    }
+
+    // ---------------- DRIVER ----------------
+    public static void main(String[] args) throws Exception {
+
+        if (args.length != 2) {
+            System.err.println("Usage: TopTenUsersOptimized <input> <output>");
+            System.exit(2);
+        }
+
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "Optimized Top Ten Users");
+
+        job.setJarByClass(TopTenUsersOptimized.class);
+
+        job.setMapperClass(UsersMapper.class);
+        job.setCombinerClass(TopTenCombiner.class);
+        job.setReducerClass(TopTenReducer.class);
+
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(IntWritable.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
+
+
+
+
+
+
+
+<?xml version="1.0" encoding="utf-8"?>
+<users>
+    <row Id="1" Reputation="12000" DisplayName="Alice" />
+    <row Id="2" Reputation="25000" DisplayName="Bob" />
+    <row Id="3" Reputation="5000" DisplayName="Charlie" />
+    <row Id="4" Reputation="42000" DisplayName="David" />
+    <row Id="5" Reputation="8000" DisplayName="Eva" />
+    <row Id="6" Reputation="32000" DisplayName="Frank" />
+    <row Id="7" Reputation="1500" DisplayName="Grace" />
+    <row Id="8" Reputation="22000" DisplayName="Henry" />
+    <row Id="9" Reputation="600" DisplayName="Ivy" />
+    <row Id="10" Reputation="9000" DisplayName="Jack" />
+    <row Id="11" Reputation="38000" DisplayName="Karen" />
+    <row Id="12" Reputation="27000" DisplayName="Leo" />
+    <row Id="13" Reputation="4500" DisplayName="Mona" />
+    <row Id="14" Reputation="31000" DisplayName="Nina" />
+    <row Id="15" Reputation="18000" DisplayName="Oscar" />
+</users>
+
+
+
+
+
+javac -classpath `hadoop classpath` -d . TopTenUsersOptimized.java
+jar -cvf topusers.jar *
+hdfs dfs -mkdir /input
+hdfs dfs -put users.xml /input
+hadoop jar topusers.jar TopTenUsersOptimized /input /output
+hdfs dfs -cat /output/part-r-00000
+
+
